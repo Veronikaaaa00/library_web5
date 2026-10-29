@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 
+import '../core/permissions.dart';
+import '../state/auth_notifier.dart';
 import '../widgets/app_scaffold.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -8,6 +11,9 @@ class HomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthNotifier>();
+    final role = auth.role;
+
     return AppScaffold(
       title: 'Библиотека',
       body: Center(
@@ -20,7 +26,7 @@ class HomeScreen extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  'Каталог библиотеки',
+                  'Здравствуйте, ${auth.user?.fullName ?? ''}',
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                         fontWeight: FontWeight.w700,
@@ -28,7 +34,7 @@ class HomeScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Формы, валидация, связи сущностей и сохранение данных между перезагрузками.',
+                  'Роль: ${auth.user?.role.label ?? '—'}',
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.bodyLarge,
                 ),
@@ -36,32 +42,42 @@ class HomeScreen extends StatelessWidget {
                 FilledButton.icon(
                   onPressed: () => context.go('/books'),
                   icon: const Icon(Icons.menu_book),
-                  label: const Text('Книги'),
+                  label: const Text('Каталог книг'),
                 ),
                 const SizedBox(height: 12),
                 OutlinedButton.icon(
-                  onPressed: () => context.go('/authors'),
-                  icon: const Icon(Icons.person),
-                  label: const Text('Авторы'),
+                  onPressed: () => context.go('/loans'),
+                  icon: const Icon(Icons.assignment),
+                  label: Text(
+                    Permissions.canManageLoans(role)
+                        ? 'Выдачи'
+                        : 'Мои выдачи',
+                  ),
                 ),
-                const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  onPressed: () => context.go('/genres'),
-                  icon: const Icon(Icons.category),
-                  label: const Text('Жанры'),
-                ),
-                const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  onPressed: () => context.go('/publishers'),
-                  icon: const Icon(Icons.business),
-                  label: const Text('Издательства'),
-                ),
-                const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  onPressed: () => context.go('/readers'),
-                  icon: const Icon(Icons.badge),
-                  label: const Text('Читатели'),
-                ),
+                if (Permissions.canManageReaders(role)) ...[
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: () => context.go('/readers'),
+                    icon: const Icon(Icons.badge),
+                    label: const Text('Читатели'),
+                  ),
+                ],
+                if (Permissions.canManageUsers(role)) ...[
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: () => context.go('/admin/users'),
+                    icon: const Icon(Icons.manage_accounts),
+                    label: const Text('Пользователи'),
+                  ),
+                ],
+                if (Permissions.canViewStats(role)) ...[
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: () => context.go('/admin/stats'),
+                    icon: const Icon(Icons.bar_chart),
+                    label: const Text('Статистика'),
+                  ),
+                ],
               ],
             ),
           ),

@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../core/permissions.dart';
 import '../data/seed_data.dart';
 import '../models/author.dart';
 import '../models/author_query.dart';
+import '../state/auth_notifier.dart';
 import '../state/author_list_notifier.dart';
 import '../widgets/app_scaffold.dart';
 import '../widgets/debounced_search_field.dart';
@@ -121,15 +123,19 @@ class _AuthorListScreenState extends State<AuthorListScreen> {
   @override
   Widget build(BuildContext context) {
     final notifier = context.watch<AuthorListNotifier>();
+    final canManage =
+        Permissions.canManageCatalog(context.watch<AuthNotifier>().role);
     final query = notifier.query;
     final wide = MediaQuery.sizeOf(context).width >= 600;
 
     return AppScaffold(
       title: 'Авторы',
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => context.go('/authors/new'),
-        child: const Icon(Icons.add),
-      ),
+      floatingActionButton: canManage
+          ? FloatingActionButton(
+              onPressed: () => context.go('/authors/new'),
+              child: const Icon(Icons.add),
+            )
+          : null,
       actions: [
         if (notifier.hasSelection)
           Padding(

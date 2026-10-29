@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../core/permissions.dart';
 import '../models/publisher.dart';
 import '../models/publisher_query.dart';
+import '../state/auth_notifier.dart';
 import '../state/publisher_list_notifier.dart';
 import '../widgets/app_scaffold.dart';
 import '../widgets/debounced_search_field.dart';
@@ -45,15 +47,19 @@ class _PublisherListScreenState extends State<PublisherListScreen> {
   @override
   Widget build(BuildContext context) {
     final notifier = context.watch<PublisherListNotifier>();
+    final canManage =
+        Permissions.canManageCatalog(context.watch<AuthNotifier>().role);
     final query = notifier.query;
     final wide = MediaQuery.sizeOf(context).width >= 600;
 
     return AppScaffold(
       title: 'Издательства',
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => context.go('/publishers/new'),
-        child: const Icon(Icons.add),
-      ),
+      floatingActionButton: canManage
+          ? FloatingActionButton(
+              onPressed: () => context.go('/publishers/new'),
+              child: const Icon(Icons.add),
+            )
+          : null,
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(

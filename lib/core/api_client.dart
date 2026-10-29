@@ -5,14 +5,20 @@ import 'api_exceptions.dart';
 import 'auth_token_store.dart';
 import 'config.dart';
 
-Dio buildDio({AuthTokenStore? tokenStore}) {
+typedef TokenRefresher = Future<void> Function();
+typedef LogoutCallback = Future<void> Function();
+
+Dio buildDio({
+  AuthTokenStore? tokenStore,
+  TokenRefresher? onRefresh,
+  LogoutCallback? onLogout,
+}) {
   final dio = Dio(
     BaseOptions(
       baseUrl: apiBaseUrl,
       connectTimeout: const Duration(seconds: 10),
       receiveTimeout: const Duration(seconds: 15),
       headers: {'Content-Type': 'application/json'},
-      // 4xx разбираем сами в интерсепторе.
       validateStatus: (status) => status != null && status < 500,
     ),
   );
@@ -61,6 +67,36 @@ Dio buildDio({AuthTokenStore? tokenStore}) {
     ),
   );
 
+  // 401 → refresh → повтор (не для /auth/).
+  dio.interceptors.add(
+    InterceptorsWrapper(
+      onError: (error, handler) async {
+        final status = error.response?.statusCode;
+        final path = error.requestOptions.path;
+        final alreadyRetried =
+            error.requestOptions.extra['authRetried'] == true;
+        if (status != 401 ||
+            onRefresh == null ||
+            alreadyRetried ||
+            path.contains('/auth/')) {
+          return handler.next(error);
+        }
+        try {
+          await onRefresh();
+          final opts = error.requestOptions;
+          opts.headers['Authorization'] =
+              'Bearer ${tokenStore?.accessToken ?? ''}';
+          opts.extra = {...opts.extra, 'authRetried': true};
+          final response = await dio.fetch(opts);
+          return handler.resolve(response);
+        } catch (_) {
+          if (onLogout != null) await onLogout();
+          return handler.next(error);
+        }
+      },
+    ),
+  );
+
   // Автоповтор только для GET (чтение), до 3 попыток.
   dio.interceptors.add(
     InterceptorsWrapper(
@@ -68,6 +104,9 @@ Dio buildDio({AuthTokenStore? tokenStore}) {
         final req = error.requestOptions;
         final method = req.method.toUpperCase();
         if (method != 'GET') {
+          return handler.next(error);
+        }
+        if (error.response?.statusCode == 401) {
           return handler.next(error);
         }
         final attempt = (req.extra['retryAttempt'] as int?) ?? 0;

@@ -2,12 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../core/api_exceptions.dart';
+import '../core/permissions.dart';
 import '../models/book.dart';
 import '../models/book_query.dart';
 import '../models/genre.dart';
 import '../models/publisher.dart';
 import '../repositories/genre_repository.dart';
 import '../repositories/publisher_repository.dart';
+import '../state/auth_notifier.dart';
 import '../state/book_list_notifier.dart';
 import '../widgets/app_scaffold.dart';
 import '../widgets/debounced_search_field.dart';
@@ -141,22 +144,26 @@ class _BookListScreenState extends State<BookListScreen> {
   @override
   Widget build(BuildContext context) {
     final notifier = context.watch<BookListNotifier>();
+    final auth = context.watch<AuthNotifier>();
+    final canManage = Permissions.canManageCatalog(auth.role);
     final query = notifier.query;
     final wide = MediaQuery.sizeOf(context).width >= 600;
 
     return AppScaffold(
       title: 'Книги',
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => context.go('/books/new'),
-        child: const Icon(Icons.add),
-      ),
+      floatingActionButton: canManage
+          ? FloatingActionButton(
+              onPressed: () => context.go('/books/new'),
+              child: const Icon(Icons.add),
+            )
+          : null,
       actions: [
-        if (notifier.hasSelection)
+        if (canManage && notifier.hasSelection)
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: Center(child: Text('Выбрано: ${notifier.selected.length}')),
           ),
-        if (notifier.hasSelection)
+        if (canManage && notifier.hasSelection)
           IconButton(
             tooltip: 'Удалить выбранные',
             onPressed: _confirmDeleteSelected,
@@ -389,18 +396,35 @@ class _BookListScreenState extends State<BookListScreen> {
   }
 
   List<Widget> _actions(Book book) {
+    final role = context.read<AuthNotifier>().role;
+    final canManage = Permissions.canManageCatalog(role);
+    final canHard = Permissions.canHardDelete(role);
+    final canRestore = Permissions.canRestore(role);
+
     if (book.isDeleted) {
       return [
-        IconButton(
-          tooltip: 'Восстановить',
-          onPressed: () => context.read<BookListNotifier>().restore(book.id),
-          icon: const Icon(Icons.restore),
-        ),
-        IconButton(
-          tooltip: 'Удалить навсегда',
-          onPressed: () => context.read<BookListNotifier>().hardDelete(book.id),
-          icon: const Icon(Icons.delete_forever),
-        ),
+        if (canRestore)
+          IconButton(
+            tooltip: 'Восстановить',
+            onPressed: () => context.read<BookListNotifier>().restore(book.id),
+            icon: const Icon(Icons.restore),
+          ),
+        if (canHard)
+          IconButton(
+            tooltip: 'Удалить навсегда',
+            onPressed: () async {
+              try {
+                await context.read<BookListNotifier>().hardDelete(book.id);
+              } on ApiException catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(e.message)),
+                  );
+                }
+              }
+            },
+            icon: const Icon(Icons.delete_forever),
+          ),
       ];
     }
     return [
@@ -409,16 +433,18 @@ class _BookListScreenState extends State<BookListScreen> {
         onPressed: () => context.go('/books/${book.id}'),
         icon: const Icon(Icons.visibility_outlined),
       ),
-      IconButton(
-        tooltip: 'Изменить',
-        onPressed: () => context.go('/books/${book.id}/edit'),
-        icon: const Icon(Icons.edit_outlined),
-      ),
-      IconButton(
-        tooltip: 'Удалить',
-        onPressed: () => _confirmSoftDelete(book),
-        icon: const Icon(Icons.delete_outline),
-      ),
+      if (canManage) ...[
+        IconButton(
+          tooltip: 'Изменить',
+          onPressed: () => context.go('/books/${book.id}/edit'),
+          icon: const Icon(Icons.edit_outlined),
+        ),
+        IconButton(
+          tooltip: 'Удалить',
+          onPressed: () => _confirmSoftDelete(book),
+          icon: const Icon(Icons.delete_outline),
+        ),
+      ],
     ];
   }
 

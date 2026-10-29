@@ -518,13 +518,27 @@ async function handle(req, res, url) {
       return send(res, 422, { message: 'Ошибка валидации', errors });
     }
 
+    // Читатель в каталоге библиотеки + учётная запись приложения.
+    const fullName = String(body.fullName || username);
+    const email = String(body.email || `${username}@example.com`);
+    const readerId = push('readers', {
+      fullName,
+      email,
+      phone: String(body.phone || ''),
+    });
+    push('cards', {
+      readerId,
+      number: 'RC-' + String(readerId).padStart(6, '0'),
+      issuedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 365 * 86400000).toISOString(),
+    });
     const id = push('users', {
       username,
       passwordHash: hash(password),
-      fullName: String(body.fullName || username),
-      email: String(body.email || ''),
+      fullName,
+      email,
       role: 'reader',
-      readerId: null,
+      readerId,
     });
     return send(res, 201, expandUser(db.users.find((u) => u.id === id)));
   }
@@ -634,6 +648,54 @@ async function handle(req, res, url) {
     const book = db.books.find((b) => b.id === loan.bookId);
     if (book) book.copiesAvailable = Math.min(book.copiesTotal, book.copiesAvailable + 1);
     return send(res, 200, expandLoan(loan));
+  }
+
+  // Продление выдачи: читатель — только свою; библиотекарь/admin — любую.
+  m = path.match(/^\/api\/loans\/(\d+)\/renew$/);
+  if (m && method === 'POST') {
+    if (!user) return fail(res, 401, 'Требуется аутентификация');
+    const loan = db.loans.find((l) => l.id === Number(m[1]) && !l.deletedAt);
+    if (!loan) return fail(res, 404, 'Выдача не найдена');
+    if (loan.returnedAt) return fail(res, 409, 'Выдача уже закрыта');
+    if (user.role === 'reader' && loan.readerId !== user.readerId) {
+      return fail(res, 403, 'Можно продлевать только свои выдачи');
+    }
+    if (user.role !== 'reader' && !requireRole(res, user, 'librarian')) return;
+    const body = await readBody(req);
+    const days = Number((body && body.days) || 14);
+    if (!Number.isInteger(days) || days < 1 || days > 90) {
+      return send(res, 422, { message: 'Ошибка валидации', errors: { days: 'Срок от 1 до 90 дней' } });
+    }
+    loan.dueAt = new Date(new Date(loan.dueAt).getTime() + days * 86400000).toISOString();
+    return send(res, 200, expandLoan(loan));
+  }
+
+  // Смена роли пользователя (только admin).
+  m = path.match(/^\/api\/users\/(\d+)$/);
+  if (m && (method === 'PUT' || method === 'PATCH')) {
+    if (!requireRole(res, user, 'admin')) return;
+    const row = db.users.find((u) => u.id === Number(m[1]) && !u.deletedAt);
+    if (!row) return fail(res, 404, 'Пользователь не найден');
+    const body = await readBody(req);
+    const nextRole = String((body && body.role) || '').trim();
+    if (!['reader', 'librarian', 'admin'].includes(nextRole)) {
+      return send(res, 422, { message: 'Ошибка валидации', errors: { role: 'Некорректная роль' } });
+    }
+    row.role = nextRole;
+    return send(res, 200, expandUser(row));
+  }
+
+  // Краткая статистика для админа.
+  if (path === '/api/stats' && method === 'GET') {
+    if (!requireRole(res, user, 'admin')) return;
+    const activeLoans = db.loans.filter((l) => !l.returnedAt && !l.deletedAt).length;
+    return send(res, 200, {
+      books: db.books.filter((b) => !b.deletedAt).length,
+      authors: db.authors.filter((a) => !a.deletedAt).length,
+      readers: db.readers.filter((r) => !r.deletedAt).length,
+      users: db.users.filter((u) => !u.deletedAt).length,
+      activeLoans,
+    });
   }
 
   // ── единообразный CRUD ──

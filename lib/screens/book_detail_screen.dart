@@ -3,12 +3,14 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../core/api_exceptions.dart';
+import '../core/permissions.dart';
 import '../models/book.dart';
 import '../repositories/author_repository.dart';
 import '../repositories/book_repository.dart';
 import '../repositories/genre_repository.dart';
 import '../repositories/loan_repository.dart';
 import '../repositories/publisher_repository.dart';
+import '../state/auth_notifier.dart';
 import '../widgets/app_scaffold.dart';
 
 class BookDetailScreen extends StatefulWidget {
@@ -126,24 +128,34 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
                 '${book.copiesAvailable} из ${book.copiesTotal}',
               ),
               const SizedBox(height: 24),
-              Wrap(
-                spacing: 12,
-                children: [
-                  FilledButton.tonalIcon(
-                    onPressed: () => context.go('/books/${book.id}/edit'),
-                    icon: const Icon(Icons.edit),
-                    label: const Text('Изменить'),
-                  ),
-                  FilledButton.icon(
-                    onPressed: () => _tryLoan(book),
-                    icon: const Icon(Icons.menu_book),
-                    label: const Text('Выдать (демо 409)'),
-                  ),
-                  OutlinedButton(
-                    onPressed: () => context.go('/books'),
-                    child: const Text('К списку'),
-                  ),
-                ],
+              Builder(
+                builder: (context) {
+                  final role = context.watch<AuthNotifier>().role;
+                  final canManage = Permissions.canManageCatalog(role);
+                  final canLoan = Permissions.canManageLoans(role);
+                  return Wrap(
+                    spacing: 12,
+                    children: [
+                      if (canManage)
+                        FilledButton.tonalIcon(
+                          onPressed: () =>
+                              context.go('/books/${book.id}/edit'),
+                          icon: const Icon(Icons.edit),
+                          label: const Text('Изменить'),
+                        ),
+                      if (canLoan)
+                        FilledButton.icon(
+                          onPressed: () => _tryLoan(book),
+                          icon: const Icon(Icons.menu_book),
+                          label: const Text('Выдать'),
+                        ),
+                      OutlinedButton(
+                        onPressed: () => context.go('/books'),
+                        child: const Text('К списку'),
+                      ),
+                    ],
+                  );
+                },
               ),
             ],
           );
